@@ -850,7 +850,7 @@ async function init(packageJson, queries, options) {
       if (!Array.isArray(urlOrFragments)) {
         const feed = xget(urlOrFragments, {
           auto: false,
-          cache: Config.downloader.memCache,
+          useCache: Config.downloader.memCache,
           chunks: options.chunks,
           retries: options.retries,
           timeout: options.timeout,
@@ -937,7 +937,7 @@ async function init(packageJson, queries, options) {
         merge2(
           ...urlOrFragments.map((frag, i) => {
             const feed = xget(frag.url, {
-              cache: Config.downloader.memCache,
+              useCache: Config.downloader.memCache,
               chunks: 1,
               retries: options.retries,
               timeout: options.timeout,
@@ -2206,7 +2206,7 @@ function prepCli(packageJson) {
 async function main(argv) {
   let packageJson = JSON.parse((await fs.readFile(xpath.join(__dirname, 'package.json'))).toString());
 
-  let {program} = prepCli(packageJson);
+  let program = prepCli(packageJson);
 
   if (!(argv.includes('-v') || argv.includes('--version'))) {
     const showBanner = !argv.includes('--no-logo');

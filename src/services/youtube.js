@@ -88,16 +88,16 @@ export class YouTubeMusic {
   #request = async function request(url, opts) {
     const response = await this.#store
       .gotInstance(url, opts)
-      .catch(err =>
-        Promise.reject(
-          new YouTubeSearchError(
-            err.message,
-            err.response && err.response.statusCode,
-            err.code,
-            err.response && err.response.body,
-          ),
-        ),
-      );
+      .catch(err => {
+        // Include a truncated body snippet for JSON parse errors to help diagnose
+        // future API changes without logging tens of thousands of characters.
+        const rawBody = err.response && err.response.body;
+        const bodySnippet =
+          typeof rawBody === 'string' && rawBody.length > 200 ? `${rawBody.slice(0, 200)}…` : rawBody;
+        return Promise.reject(
+          new YouTubeSearchError(err.message, err.response && err.response.statusCode, err.code, bodySnippet),
+        );
+      });
     if (response.req.res.url === 'https://music.youtube.com/coming-soon/')
       throw new YouTubeSearchError('YouTube Music is not available in your country');
     return response.body;
@@ -106,10 +106,50 @@ export class YouTubeMusic {
   #deriveConfig = async function deriveConfig(force = false) {
     if (this.#store.apiConfig && !force) return this.#store.apiConfig;
     const body = await this.#request('https://music.youtube.com/', {method: 'get'});
-    let match;
-    if ((match = (body || '').match(/ytcfg\.set\s*\(\s*({.+})\s*\)\s*;/))) {
-      this.#store.apiConfig = JSON.parse(match[1]);
-      return this.#store.apiConfig;
+    // Locate the opening brace of any ytcfg.set({...}) call without greedily
+    // capturing across multiple calls (the old /{.+}/ regex would span across
+    // several calls on a single minified line, producing invalid JSON).
+    const startRe = /ytcfg\.set\s*\(\s*\{/g;
+    let startMatch;
+    while ((startMatch = startRe.exec(body || '')) !== null) {
+      // Walk forward from the opening '{' using a balanced-brace extractor that
+      // respects string literals and escape sequences.
+      const openPos = startMatch.index + startMatch[0].length - 1; // position of '{'
+      let depth = 0;
+      let inString = false;
+      let escapeNext = false;
+      let closePos = -1;
+      for (let i = openPos; i < body.length; i++) {
+        const ch = body[i];
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (ch === '\\' && inString) {
+          escapeNext = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            closePos = i;
+            break;
+          }
+        }
+      }
+      if (closePos === -1) continue;
+      try {
+        this.#store.apiConfig = JSON.parse(body.slice(openPos, closePos + 1));
+        return this.#store.apiConfig;
+      } catch {
+        // This ytcfg.set call produced invalid JSON; try the next one.
+      }
     }
     throw new YouTubeSearchError('Failed to extract YouTube Music Configuration');
   };
@@ -133,12 +173,13 @@ export class YouTubeMusic {
     if (typeof queryObject !== 'object') throw new Error('<queryObject> must be an object');
     if (params && typeof params !== 'object') throw new Error('<params>, if defined must be an object');
 
-    let {INNERTUBE_API_KEY, INNERTUBE_CLIENT_NAME, INNERTUBE_CLIENT_VERSION} = await this.#deriveConfig();
+    let {INNERTUBE_API_KEY, INNERTUBE_CLIENT_NAME, INNERTUBE_CLIENT_VERSION, VISITOR_DATA} = await this.#deriveConfig();
 
     const response = await this.#request('https://music.youtube.com/youtubei/v1/search', {
       timeout: {request: 10000},
       method: 'post',
-      searchParams: {alt: 'json', key: INNERTUBE_API_KEY, ...params},
+      // The `key` query parameter was deprecated by Google in late 2023; omit it when absent.
+      searchParams: {alt: 'json', ...(INNERTUBE_API_KEY ? {key: INNERTUBE_API_KEY} : {}), ...params},
       responseType: 'json',
       json: {
         context: {
@@ -147,12 +188,16 @@ export class YouTubeMusic {
             clientVersion: INNERTUBE_CLIENT_VERSION,
             hl: 'en',
             gl: 'US',
+            ...(VISITOR_DATA ? {visitorData: VISITOR_DATA} : {}),
           },
         },
         ...queryObject,
       },
       headers: {
         referer: 'https://music.youtube.com/search',
+        origin: 'https://music.youtube.com',
+        'x-youtube-client-name': '67',
+        'x-youtube-client-version': INNERTUBE_CLIENT_VERSION,
       },
     });
 
