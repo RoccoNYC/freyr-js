@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-05-07
+
+- Refactored code structure for improved readability and maintainability. <https://github.com/miraclx/freyr-js/commit/ce4a7d9>
+- Fixed YouTube Music dynamic parameters handling. <https://github.com/miraclx/freyr-js/pull/722>
+- Updated `youtube-dl-exec` to v3 for improved compatibility. <https://github.com/miraclx/freyr-js/commit/961799d>
+- Fixed punycode issue in URL handling. <https://github.com/miraclx/freyr-js/commit/4d5779d>
+- Updated dependencies to latest stable versions for security and compatibility.
+
 ## [0.10.3] - 2024-01-14
 
 - Implemented automated authentication for Apple Music. <https://github.com/miraclx/freyr-js/pull/623>, <https://github.com/miraclx/freyr-js/pull/624>
